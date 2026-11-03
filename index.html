@@ -65,20 +65,42 @@ async function sha256Hex(bytes) {
 
 // live = true only when the photo came from the Veribly camera view.
 async function publish(dataURL, live) {
-  statusEl.textContent = 'Hashing and uploading…';
-  const hash = await sha256Hex(bytesFromDataURL(dataURL));
-  const pf = await getPortfolio();
-  const r = await fetch(`/api/portfolios/${pf.id}/captures`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Owner-Token': pf.ownerToken },
-    body: JSON.stringify({ image: dataURL, hash, live: live === true })
-  });
-  const data = await r.json();
-  if (!r.ok) { statusEl.textContent = 'Upload failed: ' + (data.error || r.status); return; }
-  statusEl.textContent = 'Verified capture saved at ' + new Date(data.capturedAt).toLocaleString() + '.';
-  const url = `${location.origin}/p/${pf.id}`;
-  $('link').style.display = 'block';
-  $('link').innerHTML = `Your portfolio: <a href="${url}">${url}</a>`;
+  // Every failure path writes a visible message, so the screen never sits on a stuck step.
+  try {
+    statusEl.textContent = 'Step 1 of 3: hashing photo…';
+    const hash = await sha256Hex(bytesFromDataURL(dataURL));
+
+    statusEl.textContent = 'Step 2 of 3: getting your portfolio…';
+    const pf = await getPortfolio();
+
+    const sizeKB = Math.round(dataURL.length / 1024);
+    statusEl.textContent = `Step 3 of 3: uploading ${sizeKB} KB…`;
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 60000);
+    let r;
+    try {
+      r = await fetch(`/api/portfolios/${pf.id}/captures`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Owner-Token': pf.ownerToken },
+        body: JSON.stringify({ image: dataURL, hash, live: live === true }),
+        signal: ctrl.signal
+      });
+    } finally { clearTimeout(timer); }
+
+    let data = {};
+    try { data = await r.json(); } catch (_) { /* non-JSON response */ }
+    if (!r.ok) {
+      statusEl.textContent = `Server rejected the upload (HTTP ${r.status}): ${data.error || 'no details'}`;
+      return;
+    }
+    statusEl.textContent = 'Verified capture saved at ' + new Date(data.capturedAt).toLocaleString() + '.';
+    const url = `${location.origin}/p/${pf.id}`;
+    $('link').style.display = 'block';
+    $('link').innerHTML = `Your portfolio: <a href="${url}">${url}</a>`;
+  } catch (err) {
+    const why = err.name === 'AbortError' ? 'no response after 60 seconds' : err.message;
+    statusEl.textContent = 'Upload failed: ' + why;
+  }
 }
 
 async function startCamera() {
