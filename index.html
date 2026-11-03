@@ -42,10 +42,15 @@ let stream = null;
 
 // Owner credentials live in this browser only.
 async function getPortfolio() {
-  let pf = JSON.parse(localStorage.getItem('veribly.portfolio') || 'null');
-  if (!pf) {
+  // A saved value that fails to parse or lacks fields is discarded and recreated.
+  let pf = null;
+  try { pf = JSON.parse(localStorage.getItem('veribly.portfolio') || 'null'); } catch (_) { pf = null; }
+  if (!pf || !pf.id || !pf.ownerToken) {
+    localStorage.removeItem('veribly.portfolio');
     const r = await fetch('/api/portfolios', { method: 'POST' });
-    pf = await r.json();
+    const text = await r.text();
+    if (!r.ok) throw new Error(`could not create portfolio (HTTP ${r.status}): ${text.slice(0, 120)}`);
+    pf = JSON.parse(text);
     localStorage.setItem('veribly.portfolio', JSON.stringify(pf));
   }
   return pf;
