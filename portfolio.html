@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Veribly portfolio</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; font-family: -apple-system, system-ui, sans-serif; background: #111; color: #eee; }
+  header { padding: 16px; font-weight: 600; }
+  .card { margin: 0 16px 16px; background: #1d1d1d; border-radius: 12px; overflow: hidden; }
+  .card img { width: 100%; display: block; }
+  .meta { padding: 12px; font-size: 14px; line-height: 1.5; color: #bbb; }
+  .ok { color: #4ade80; font-weight: 600; }
+  .bad { color: #f87171; font-weight: 600; }
+  .pending { color: #aaa; }
+  .hash { font-family: ui-monospace, monospace; font-size: 11px; word-break: break-all; color: #777; }
+  .empty { padding: 16px; color: #aaa; }
+</style>
+</head>
+<body>
+<header>Verified portfolio</header>
+<div id="list"><div class="empty">Loading…</div></div>
+
+<script>
+const id = location.pathname.split('/').pop();
+
+function bytesFromDataURL(dataURL) {
+  const bin = atob(dataURL.split(',')[1]);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+async function sha256Hex(bytes) {
+  const buf = await crypto.subtle.digest('SHA-256', bytes);
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+
+(async () => {
+  const list = document.getElementById('list');
+  const r = await fetch(`/api/portfolios/${id}`);
+  if (!r.ok) { list.innerHTML = '<div class="empty">Portfolio not found.</div>'; return; }
+  const { items } = await r.json();
+  if (!items.length) { list.innerHTML = '<div class="empty">No verified captures yet.</div>'; return; }
+
+  list.innerHTML = items.map((it, i) => `
+    <div class="card">
+      <img src="${it.image}" alt="Verified capture ${i + 1}">
+      <div class="meta">
+        Captured: ${new Date(it.capturedAt).toLocaleString()} (server time)<br>
+        Source: ${it.live ? 'Veribly camera (live capture, self-reported)' : 'Uploaded from file picker, not a live capture'}<br>
+        <span class="pending" id="st-${i}">Checking…</span>
+        <div class="hash">SHA-256 ${esc(it.hash)}</div>
+      </div>
+    </div>`).join('');
+
+  // Recompute each hash in the viewer's browser. Anyone can check it, no account needed.
+  for (let i = 0; i < items.length; i++) {
+    const el = document.getElementById('st-' + i);
+    const actual = await sha256Hex(bytesFromDataURL(items[i].image));
+    if (actual === items[i].hash) {
+      el.className = 'ok'; el.textContent = '✓ Unedited since capture';
+    } else {
+      el.className = 'bad'; el.textContent = '✗ Image does not match its recorded hash';
+    }
+  }
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#111111">
+<title>Veribly</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, system-ui, sans-serif; background: #111; color: #eee; min-height: 100vh; }
+  header { padding: 16px; font-weight: 600; font-size: 18px; }
+  #cam { width: 100%; max-height: 60vh; background: #000; display: block; object-fit: cover; }
+  .row { display: flex; gap: 10px; padding: 16px; }
+  button { flex: 1; padding: 16px; font-size: 17px; border: 0; border-radius: 12px; background: #3b82f6; color: #fff; font-weight: 600; }
+  button:disabled { background: #444; }
+  #status { padding: 0 16px; font-size: 14px; color: #aaa; min-height: 40px; }
+  #link { display: none; margin: 0 16px 16px; padding: 12px; background: #1d1d1d; border-radius: 10px; word-break: break-all; font-size: 14px; }
+  #link a { color: #7cb7ff; }
+  #fallback { display: none; padding: 16px; }
+  #fallback input { width: 100%; font-size: 16px; }
+  canvas { display: none; }
+</style>
+</head>
+<body>
+<header>Veribly</header>
+<video id="cam" autoplay playsinline muted></video>
+<div class="row"><button id="shoot" disabled>Capture</button></div>
+<div id="status">Starting camera…</div>
+<div id="link"></div>
+<div id="fallback">
+  <p>Live camera isn't available here. Take a photo with the file picker instead:</p>
+  <input type="file" accept="image/*" capture="environment" id="file">
+</div>
+<canvas id="canvas"></canvas>
+
+<script>
+const $ = id => document.getElementById(id);
+const statusEl = $('status');
+let stream = null;
+
+// Owner credentials live in this browser only.
+async function getPortfolio() {
+  let pf = JSON.parse(localStorage.getItem('veribly.portfolio') || 'null');
+  if (!pf) {
+    const r = await fetch('/api/portfolios', { method: 'POST' });
+    pf = await r.json();
+    localStorage.setItem('veribly.portfolio', JSON.stringify(pf));
+  }
+  return pf;
+}
+
+function bytesFromDataURL(dataURL) {
+  const b64 = dataURL.split(',')[1];
+  const bin = atob(b64);
+  const out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+async function sha256Hex(bytes) {
+  const buf = await crypto.subtle.digest('SHA-256', bytes);
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// live = true only when the photo came from the Veribly camera view.
+async function publish(dataURL, live) {
+  statusEl.textContent = 'Hashing and uploading…';
+  const hash = await sha256Hex(bytesFromDataURL(dataURL));
+  const pf = await getPortfolio();
+  const r = await fetch(`/api/portfolios/${pf.id}/captures`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Owner-Token': pf.ownerToken },
+    body: JSON.stringify({ image: dataURL, hash, live: live === true })
+  });
+  const data = await r.json();
+  if (!r.ok) { statusEl.textContent = 'Upload failed: ' + (data.error || r.status); return; }
+  statusEl.textContent = 'Verified capture saved at ' + new Date(data.capturedAt).toLocaleString() + '.';
+  const url = `${location.origin}/p/${pf.id}`;
+  $('link').style.display = 'block';
+  $('link').innerHTML = `Your portfolio: <a href="${url}">${url}</a>`;
+}
+
+async function startCamera() {
+  try {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('no getUserMedia');
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
+    $('cam').srcObject = stream;
+    $('shoot').disabled = false;
+    statusEl.textContent = 'Point at the subject and capture.';
+  } catch (e) {
+    $('cam').style.display = 'none';
+    $('shoot').style.display = 'none';
+    $('fallback').style.display = 'block';
+    statusEl.textContent = 'Camera unavailable. Use the file picker.';
+  }
+}
+
+$('shoot').onclick = async () => {
+  const v = $('cam'), c = $('canvas');
+  c.width = v.videoWidth; c.height = v.videoHeight;
+  c.getContext('2d').drawImage(v, 0, 0);
+  $('shoot').disabled = true;
+  try { await publish(c.toDataURL('image/jpeg', 0.92), true); }
+  finally { $('shoot').disabled = false; }
+};
+
+// Fallback path: the photo came from the picker, so it is NOT marked as a live capture.
+$('file').onchange = e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    // Re-encode as JPEG so the server gets a consistent format.
+    const img = new Image();
+    img.onload = () => {
+      const c = $('canvas');
+      c.width = img.naturalWidth; c.height = img.naturalHeight;
+      c.getContext('2d').drawImage(img, 0, 0);
+      publish(c.toDataURL('image/jpeg', 0.92), false);
+    };
+    img.src = reader.result;
+  };
+  reader.readAsDataURL(f);
+};
+
+startCamera();
+</script>
+</body>
+</html>
