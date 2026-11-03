@@ -9,40 +9,98 @@
 <style>
   :root { color-scheme: dark; }
   * { box-sizing: border-box; }
-  body { margin: 0; font-family: -apple-system, system-ui, sans-serif; background: #111; color: #eee; min-height: 100vh; }
+  body { margin: 0; font-family: -apple-system, system-ui, sans-serif; background: #111; color: #eee; min-height: 100vh; padding-bottom: 24px; }
   header { padding: 16px; font-weight: 600; font-size: 18px; }
+  nav { display: flex; gap: 8px; padding: 0 16px 12px; }
+  nav button { flex: 1; padding: 10px 6px; font-size: 14px; border-radius: 10px; background: #222; color: #bbb; font-weight: 600; }
+  nav button.active { background: #3b82f6; color: #fff; }
+  section { display: none; }
+  section.active { display: block; }
   #cam { width: 100%; max-height: 60vh; background: #000; display: block; object-fit: cover; }
   .row { display: flex; gap: 10px; padding: 16px; }
-  button { flex: 1; padding: 16px; font-size: 17px; border: 0; border-radius: 12px; background: #3b82f6; color: #fff; font-weight: 600; }
-  button:disabled { background: #444; }
-  #status { padding: 0 16px; font-size: 14px; color: #aaa; min-height: 40px; }
-  #link { display: none; margin: 0 16px 16px; padding: 12px; background: #1d1d1d; border-radius: 10px; word-break: break-all; font-size: 14px; }
-  #link a { color: #7cb7ff; }
+  button.primary { flex: 1; padding: 16px; font-size: 17px; border: 0; border-radius: 12px; background: #3b82f6; color: #fff; font-weight: 600; }
+  button.primary:disabled { background: #444; }
+  .status { padding: 0 16px; font-size: 14px; color: #aaa; min-height: 40px; }
+  .box { margin: 0 16px 16px; padding: 12px; background: #1d1d1d; border-radius: 10px; word-break: break-all; font-size: 14px; color: #bbb; }
+  .box a { color: #7cb7ff; }
   #fallback { display: none; padding: 16px; }
   #fallback input { width: 100%; font-size: 16px; }
   canvas { display: none; }
+  .card { margin: 0 16px 16px; background: #1d1d1d; border-radius: 12px; overflow: hidden; }
+  .card img { width: 100%; display: block; }
+  .meta { padding: 12px; font-size: 14px; line-height: 1.5; color: #bbb; }
+  .ok { color: #4ade80; font-weight: 600; }
+  .bad { color: #f87171; font-weight: 600; }
+  .hash { font-family: ui-monospace, monospace; font-size: 11px; word-break: break-all; color: #777; }
+  .text { padding: 0 16px; font-size: 15px; line-height: 1.6; color: #ccc; }
+  .text h3 { color: #eee; font-size: 16px; margin: 20px 0 6px; }
+  .text ul { padding-left: 20px; }
 </style>
 </head>
 <body>
 <header>Veribly</header>
-<video id="cam" autoplay playsinline muted></video>
-<div class="row"><button id="shoot" disabled>Capture</button></div>
-<div id="status">Starting camera…</div>
-<div id="link"></div>
-<div id="fallback">
-  <p>Live camera isn't available here. Take a photo with the file picker instead:</p>
-  <input type="file" accept="image/*" capture="environment" id="file">
-</div>
-<canvas id="canvas"></canvas>
+<nav>
+  <button id="tab-capture" class="active" data-tab="capture">Capture</button>
+  <button id="tab-portfolio" data-tab="portfolio">My portfolio</button>
+  <button id="tab-about" data-tab="about">About</button>
+</nav>
+
+<!-- CAPTURE -->
+<section id="capture" class="active">
+  <video id="cam" autoplay playsinline muted></video>
+  <div class="row"><button id="shoot" class="primary" disabled>Capture</button></div>
+  <div id="status" class="status">Starting camera…</div>
+  <div id="link" class="box" style="display:none"></div>
+  <div id="fallback">
+    <p>Live camera isn't available here. Take a photo with the file picker instead:</p>
+    <input type="file" accept="image/*" capture="environment" id="file">
+  </div>
+  <canvas id="canvas"></canvas>
+</section>
+
+<!-- MY PORTFOLIO -->
+<section id="portfolio">
+  <div id="pf-link" class="box" style="display:none"></div>
+  <div id="pf-list"><div class="status">Loading…</div></div>
+</section>
+
+<!-- ABOUT -->
+<section id="about">
+  <div class="text">
+    <h3>What Veribly does</h3>
+    <p>Take a photo in the Veribly camera. The app fingerprints the image (SHA-256) and saves it to your portfolio with a server timestamp. Anyone with your portfolio link can check that each image still matches its fingerprint.</p>
+    <h3>What it proves</h3>
+    <ul>
+      <li>The image hasn't changed since it was uploaded.</li>
+      <li>The server recorded when it arrived.</li>
+    </ul>
+    <h3>What it doesn't prove</h3>
+    <ul>
+      <li>That the photo was taken on a real device, or that the scene is true. The "live capture" label is set by the browser, so it's self-reported.</li>
+      <li>That the image wasn't edited before upload.</li>
+    </ul>
+    <h3>Prototype limits</h3>
+    <ul>
+      <li>Photos are stored on the server's disk and may be lost if the service is reset.</li>
+      <li>Anyone with your portfolio link can view it.</li>
+    </ul>
+  </div>
+</section>
 
 <script>
 const $ = id => document.getElementById(id);
 const statusEl = $('status');
-let stream = null;
 
-// Owner credentials live in this browser only.
+// ---------- Navigation ----------
+function showTab(name) {
+  for (const s of document.querySelectorAll('section')) s.classList.toggle('active', s.id === name);
+  for (const b of document.querySelectorAll('nav button')) b.classList.toggle('active', b.dataset.tab === name);
+  if (name === 'portfolio') loadPortfolioView();
+}
+for (const b of document.querySelectorAll('nav button')) b.onclick = () => showTab(b.dataset.tab);
+
+// ---------- Owner portfolio (saved in this browser only) ----------
 async function getPortfolio() {
-  // A saved value that fails to parse or lacks fields is discarded and recreated.
   let pf = null;
   try { pf = JSON.parse(localStorage.getItem('veribly.portfolio') || 'null'); } catch (_) { pf = null; }
   if (!pf || !pf.id || !pf.ownerToken) {
@@ -56,9 +114,9 @@ async function getPortfolio() {
   return pf;
 }
 
+// ---------- Hashing helpers ----------
 function bytesFromDataURL(dataURL) {
-  const b64 = dataURL.split(',')[1];
-  const bin = atob(b64);
+  const bin = atob(dataURL.split(',')[1]);
   const out = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
   return out;
@@ -67,10 +125,11 @@ async function sha256Hex(bytes) {
   const buf = await crypto.subtle.digest('SHA-256', bytes);
   return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
+function esc(s) { return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 
+// ---------- Capture ----------
 // live = true only when the photo came from the Veribly camera view.
 async function publish(dataURL, live) {
-  // Every failure path writes a visible message, so the screen never sits on a stuck step.
   let step = 'starting';
   try {
     step = 'hashing photo';
@@ -103,7 +162,7 @@ async function publish(dataURL, live) {
       statusEl.textContent = `Server rejected the upload (HTTP ${r.status}): ${data.error || 'no details'}`;
       return;
     }
-    statusEl.textContent = 'Verified capture saved at ' + new Date(data.capturedAt).toLocaleString() + '.';
+    statusEl.textContent = 'Verified capture saved at ' + new Date(data.capturedAt).toLocaleString() + '. See My portfolio.';
     const url = `${location.origin}/p/${pf.id}`;
     $('link').style.display = 'block';
     $('link').innerHTML = `Your portfolio: <a href="${url}">${url}</a>`;
@@ -116,7 +175,7 @@ async function publish(dataURL, live) {
 async function startCamera() {
   try {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('no getUserMedia');
-    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
     $('cam').srcObject = stream;
     $('shoot').disabled = false;
     statusEl.textContent = 'Point at the subject and capture.';
@@ -137,13 +196,12 @@ $('shoot').onclick = async () => {
   finally { $('shoot').disabled = false; }
 };
 
-// Fallback path: the photo came from the picker, so it is NOT marked as a live capture.
+// File-picker photos are NOT marked as live captures.
 $('file').onchange = e => {
   const f = e.target.files[0];
   if (!f) return;
   const reader = new FileReader();
   reader.onload = () => {
-    // Re-encode as JPEG so the server gets a consistent format.
     const img = new Image();
     img.onload = () => {
       const c = $('canvas');
@@ -155,6 +213,44 @@ $('file').onchange = e => {
   };
   reader.readAsDataURL(f);
 };
+
+// ---------- My portfolio ----------
+async function loadPortfolioView() {
+  const list = $('pf-list');
+  let pf;
+  try { pf = JSON.parse(localStorage.getItem('veribly.portfolio') || 'null'); } catch (_) { pf = null; }
+  if (!pf || !pf.id) {
+    $('pf-link').style.display = 'none';
+    list.innerHTML = '<div class="status">No portfolio yet. Take a photo on the Capture tab first.</div>';
+    return;
+  }
+  const url = `${location.origin}/p/${pf.id}`;
+  $('pf-link').style.display = 'block';
+  $('pf-link').innerHTML = `Share this link: <a href="${url}">${url}</a>`;
+
+  const r = await fetch(`/api/portfolios/${pf.id}`);
+  if (!r.ok) { list.innerHTML = '<div class="status">Could not load your portfolio.</div>'; return; }
+  const { items } = await r.json();
+  if (!items.length) { list.innerHTML = '<div class="status">No captures yet.</div>'; return; }
+
+  list.innerHTML = items.map((it, i) => `
+    <div class="card">
+      <img src="${it.image}" alt="Capture ${i + 1}">
+      <div class="meta">
+        Captured: ${new Date(it.capturedAt).toLocaleString()} (server time)<br>
+        Source: ${it.live ? 'Veribly camera (self-reported)' : 'File picker, not a live capture'}<br>
+        <span id="pfst-${i}">Checking…</span>
+        <div class="hash">SHA-256 ${esc(it.hash)}</div>
+      </div>
+    </div>`).join('');
+
+  for (let i = 0; i < items.length; i++) {
+    const el = $('pfst-' + i);
+    const actual = await sha256Hex(bytesFromDataURL(items[i].image));
+    el.className = actual === items[i].hash ? 'ok' : 'bad';
+    el.textContent = actual === items[i].hash ? '✓ Unedited since capture' : '✗ Image does not match its recorded hash';
+  }
+}
 
 startCamera();
 </script>
