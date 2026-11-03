@@ -1,0 +1,13 @@
+{
+  "name": "veribly-prototype",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Veribly prototype: capture page, portfolio page, and API server",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
