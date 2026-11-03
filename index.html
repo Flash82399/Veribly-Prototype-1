@@ -159,6 +159,12 @@ async function publish(dataURL, live) {
     let data = {};
     try { data = await r.json(); } catch (_) { /* non-JSON response */ }
     if (!r.ok) {
+      if (r.status === 404) {
+        // The server no longer has this portfolio (for example, after a redeploy). Forget it so the next capture makes a new one.
+        localStorage.removeItem('veribly.portfolio');
+        statusEl.textContent = 'Your saved portfolio was reset on the server. Tap Capture again to start a new one.';
+        return;
+      }
       statusEl.textContent = `Server rejected the upload (HTTP ${r.status}): ${data.error || 'no details'}`;
       return;
     }
@@ -229,7 +235,13 @@ async function loadPortfolioView() {
   $('pf-link').innerHTML = `Share this link: <a href="${url}">${url}</a>`;
 
   const r = await fetch(`/api/portfolios/${pf.id}`);
-  if (!r.ok) { list.innerHTML = '<div class="status">Could not load your portfolio.</div>'; return; }
+  if (r.status === 404) {
+    localStorage.removeItem('veribly.portfolio');
+    $('pf-link').style.display = 'none';
+    list.innerHTML = '<div class="status">Your saved portfolio was reset on the server. Take a photo on the Capture tab to start a new one.</div>';
+    return;
+  }
+  if (!r.ok) { list.innerHTML = `<div class="status">Could not load your portfolio (HTTP ${r.status}).</div>`; return; }
   const { items } = await r.json();
   if (!items.length) { list.innerHTML = '<div class="status">No captures yet.</div>'; return; }
 
