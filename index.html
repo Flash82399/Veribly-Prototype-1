@@ -66,14 +66,18 @@ async function sha256Hex(bytes) {
 // live = true only when the photo came from the Veribly camera view.
 async function publish(dataURL, live) {
   // Every failure path writes a visible message, so the screen never sits on a stuck step.
+  let step = 'starting';
   try {
+    step = 'hashing photo';
     statusEl.textContent = 'Step 1 of 3: hashing photo…';
     const hash = await sha256Hex(bytesFromDataURL(dataURL));
 
+    step = 'getting portfolio';
     statusEl.textContent = 'Step 2 of 3: getting your portfolio…';
     const pf = await getPortfolio();
 
     const sizeKB = Math.round(dataURL.length / 1024);
+    step = 'uploading';
     statusEl.textContent = `Step 3 of 3: uploading ${sizeKB} KB…`;
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 60000);
@@ -87,6 +91,7 @@ async function publish(dataURL, live) {
       });
     } finally { clearTimeout(timer); }
 
+    step = 'reading server response';
     let data = {};
     try { data = await r.json(); } catch (_) { /* non-JSON response */ }
     if (!r.ok) {
@@ -99,7 +104,7 @@ async function publish(dataURL, live) {
     $('link').innerHTML = `Your portfolio: <a href="${url}">${url}</a>`;
   } catch (err) {
     const why = err.name === 'AbortError' ? 'no response after 60 seconds' : err.message;
-    statusEl.textContent = 'Upload failed: ' + why;
+    statusEl.textContent = `Failed while ${step} (${err.name}): ${why}`;
   }
 }
 
